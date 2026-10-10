@@ -43,15 +43,21 @@ server 镜像的 API 基座需覆盖所发布的 CPU 架构。
 
 ## 本轮验证与后续验证
 
-本轮只做必要 Git refs 获取、源码合并及内存中的语法/脚本检查。
-没有安装依赖、初始化子模块、编译、拉取镜像或修改生产服务。
+本机只做必要 Git refs 获取、源码合并、lockfile 取回及内存中的语法/脚本检查。
+没有在本机安装依赖、初始化子模块、编译、拉取镜像或修改生产服务。
 Rust 语法解析、YAML 解析和 `git diff --check` 不能代替完整编译与连接验证。
 
-原 fork 的 `Cargo.lock` 已存在与子模块依赖要求不一致的情况，例如锁定 tokio
-`1.43.0`，但固定子模块要求 `1.44`。本轮仅合并官方的 lockfile 变更，没有在
-本机拉取整套依赖重新解析。新增 `Validate server source` 工作流在 GitHub runner
-上执行单架构 `cargo check --bins`，上传解析后的 `Cargo.lock` 供审查；若有变化，
-需审查并纳入仓库后再启用 `--locked` 构建。本轮尚未运行该工作流。
+原 fork 的 `Cargo.lock` 与子模块依赖要求不一致，例如锁定 tokio `1.43.0`，
+但固定子模块要求 `1.44`。2026-10-10 的
+[首轮 CI](https://github.com/yaoguaijiao/rustdesk-server/actions/runs/38029998935)
+已成功执行单架构 `cargo check --bins`，完成依赖解析及源码类型检查。
+已审查并取回其 `Cargo.lock`（上传压缩包约 27 KB，文件约 115 KB），
+纳入完整的子模块依赖图，没有在本机下载整套依赖。
+
+后续验证及四个根服务端发布构建入口启用 `--locked`，依赖图不一致时直接报错。
+UI 使用独立锁文件，本轮不改变其构建方式。最终复检结果见
+[服务端草稿 PR](https://github.com/yaoguaijiao/rustdesk-server/pull/1) 的 CI 检查。
+Ubuntu 默认目标的 `cargo check` 仍不代表 musl、多架构、容器启动或真实连接验证。
 
 正式替换部署前，在独立测试环境验证：桌面客户端注册、直连和中继；浏览器远控；
 登录与过期/无效 JWT 拒绝；强制登录开关；API 管理操作；设备在线/离线变化；

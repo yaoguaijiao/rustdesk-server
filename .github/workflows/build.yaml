@@ -95,7 +95,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --all-features --target=${{ matrix.job.target }}
+          args: --release --locked --all-features --target=${{ matrix.job.target }}
           use-cross: true  
 
       - name: Exec chmod
@@ -137,7 +137,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --all-features --target=x86_64-pc-windows-msvc
+          args: --release --locked --all-features --target=x86_64-pc-windows-msvc
           use-cross: true
 
       - name: Install NSIS
