@@ -2,6 +2,11 @@ name: Build and publish to ghcr.io
 
 on:
   workflow_dispatch:
+    inputs:
+      api_image:
+        description: 'Fixed rustdesk-api image tag or sha256 digest; defaults to RUSTDESK_API_IMAGE'
+        required: false
+        type: string
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
@@ -12,6 +17,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   LATEST_TAG: latest
+  API_IMAGE: ${{ inputs.api_image || vars.RUSTDESK_API_IMAGE }}
 
 permissions:
   contents: read
@@ -19,9 +25,40 @@ permissions:
 
 jobs:
 
+  validate-api-image:
+    name: Validate API base image
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate fixed RustDesk API image
+        shell: bash
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          image="${API_IMAGE}"
+          [[ -n "$image" && ! "$image" =~ [[:space:]] ]] || fail "Set api_image or RUSTDESK_API_IMAGE to a fixed API image."
+          reference="${image%@*}"
+          if [[ "$image" == *@* ]]; then
+            digest="${image##*@}"
+            [[ "$digest" =~ ^sha256:[a-fA-F0-9]{64}$ ]] || fail "API image digest must be sha256 followed by 64 hexadecimal characters."
+          else
+            [[ "${reference##*/}" == *:* ]] || fail "API image must include a fixed tag or sha256 digest."
+          fi
+          repository="$reference"
+          if [[ "${reference##*/}" == *:* ]]; then
+            repository="${reference%:*}"
+            tag="${reference##*:}"
+            [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || fail "API image tag is invalid."
+            [[ "${tag,,}" != latest && "${tag,,}" != latest-* ]] || fail "Use a fixed API image version instead of latest."
+            [[ ! "${tag,,}" =~ (^|[-_.])s6($|[-_.]) ]] || fail "Use an API-only image tag instead of an S6 image tag."
+          fi
+          repository_pattern='^([a-z0-9.-]+(:[0-9]+)?/)?[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(/[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*)*$'
+          [[ "$repository" =~ $repository_pattern ]] || fail "API image repository is invalid."
+          name="${repository##*/}"
+          [[ ! "$name" =~ (^|[-_.])s6($|[-_.]) ]] || fail "Use the API-only image; an S6 image would create a circular dependency."
+
   # Binary build
   build:
     name: Build - ${{ matrix.job.name }}
+    needs: validate-api-image
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -137,6 +174,7 @@ jobs:
           provenance: false
           build-args: |
             S6_ARCH=${{ matrix.job.s6_platform }}
+            API_IMAGE=${{ env.API_IMAGE }}
           tags: |
             ghcr.io/${{ github.repository }}-s6:${{ env.LATEST_TAG }}-${{ matrix.job.name }}
             ghcr.io/${{ github.repository }}-s6:${{ env.GIT_TAG }}-${{ matrix.job.name }}

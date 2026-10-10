@@ -1,6 +1,8 @@
 
 # 关于此分支
 
+自有分支的官方更新基线、构建来源和验证步骤见 [UPGRADE.md](UPGRADE.md)。
+
 
 
 [![build](https://github.com/lejianwen/rustdesk-server/actions/workflows/build.yaml/badge.svg)](https://github.com/lejianwen/rustdesk-server/actions/workflows/build.yaml)
