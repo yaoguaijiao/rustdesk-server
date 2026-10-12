@@ -2,6 +2,8 @@
 
 2026-10-12 完成本轮隔离验证，未切换生产服务。测试使用 2026-10-10 14:55（UTC+8）取得的一致数据快照。
 
+后续生产切换已于 2026-10-12 完成，见[生产切换记录](PRODUCTION_DEPLOYMENT_20261012.md)。
+
 ## 固定产物
 
 - [成功的完整构建](https://github.com/yaoguaijiao/rustdesk-api/actions/runs/38032499529)：前端、静态 Go API、三个静态 Rust 服务端二进制、合并 S6 镜像。
