@@ -1,0 +1,63 @@
+name: Build read-only NaCl TCP probe
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'examples/migration_tcp_probe.rs'
+      - '.github/workflows/migration-tcp-probe.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      MUSL_BUILDER: ghcr.io/rust-cross/rust-musl-cross@sha256:fb7229c2a7dd84957e3a46f8bec7d01c4ec7c295ad159606623093a0a9286253
+      EXPECTED_HBB_COMMON: d6b14975ffd35ed63528617a53795c479a6eaf13
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Verify pinned protocol source
+        run: |
+          # 只读取子模块提交，防止探测器使用不同协议来源。
+          test "$(git -C libs/hbb_common rev-parse HEAD)" = "$EXPECTED_HBB_COMMON"
+
+      - name: Build static probe in CI
+        run: |
+          # 编译环境、依赖与 target 仅写入 CI；不在用户电脑或服务器安装、编译。
+          # 复用现有 Cargo.lock，只构建这一个 example，不构建镜像、不发布服务。
+          docker run --rm --platform linux/amd64 \
+            -e CARGO_BUILD_JOBS=2 \
+            -v "$PWD:/home/rust/src" -w /home/rust/src \
+            "$MUSL_BUILDER" \
+            cargo build --locked --release --example migration_tcp_probe \
+              --target=x86_64-unknown-linux-musl
+          binary=target/x86_64-unknown-linux-musl/release/examples/migration_tcp_probe
+          file "$binary"
+          if readelf -l "$binary" | grep -q INTERP; then
+            echo '::error::Probe requires a dynamic loader'
+            exit 1
+          fi
+          git diff --exit-code -- Cargo.lock
+
+      - name: Record executable checksum
+        working-directory: target/x86_64-unknown-linux-musl/release/examples
+        run: |
+          # 仅在 CI 写入一份小 SHA256 文本；不执行 probe，不连接任何服务器。
+          sha256sum migration_tcp_probe > migration_tcp_probe.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: migration-tcp-probe-linux-amd64
+          path: |
+            target/x86_64-unknown-linux-musl/release/examples/migration_tcp_probe
+            target/x86_64-unknown-linux-musl/release/examples/migration_tcp_probe.sha256
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 3
