@@ -49,6 +49,8 @@ jobs:
       - name: Record executable checksum
         working-directory: target/x86_64-unknown-linux-musl/release/examples
         run: |
+          # Docker 以 root 创建此目录；仅调整这个 CI 目录的归属，不递归改动产物。
+          sudo chown -- "$(id -u):$(id -g)" .
           # 仅在 CI 写入一份小 SHA256 文本；不执行 probe，不连接任何服务器。
           sha256sum migration_tcp_probe > migration_tcp_probe.sha256
 
