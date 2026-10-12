@@ -9,6 +9,11 @@ name: build
 
 on:
   workflow_dispatch:
+    inputs:
+      api_image:
+        description: 'Fixed rustdesk-api image tag or sha256 digest; defaults to RUSTDESK_API_IMAGE'
+        required: false
+        type: string
   push:
     tags:
       - 'v[0-9]+.[0-9]+.[0-9]+'
@@ -19,13 +24,45 @@ on:
 env:
   CARGO_TERM_COLOR: always
   LATEST_TAG: latest
+  API_IMAGE: ${{ inputs.api_image || vars.RUSTDESK_API_IMAGE }}
   
 jobs:
+
+  validate-api-image:
+    name: Validate API base image
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate fixed RustDesk API image
+        shell: bash
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          image="${API_IMAGE}"
+          [[ -n "$image" && ! "$image" =~ [[:space:]] ]] || fail "Set api_image or RUSTDESK_API_IMAGE to a fixed API image."
+          reference="${image%@*}"
+          if [[ "$image" == *@* ]]; then
+            digest="${image##*@}"
+            [[ "$digest" =~ ^sha256:[a-fA-F0-9]{64}$ ]] || fail "API image digest must be sha256 followed by 64 hexadecimal characters."
+          else
+            [[ "${reference##*/}" == *:* ]] || fail "API image must include a fixed tag or sha256 digest."
+          fi
+          repository="$reference"
+          if [[ "${reference##*/}" == *:* ]]; then
+            repository="${reference%:*}"
+            tag="${reference##*:}"
+            [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || fail "API image tag is invalid."
+            [[ "${tag,,}" != latest && "${tag,,}" != latest-* ]] || fail "Use a fixed API image version instead of latest."
+            [[ ! "${tag,,}" =~ (^|[-_.])s6($|[-_.]) ]] || fail "Use an API-only image tag instead of an S6 image tag."
+          fi
+          repository_pattern='^([a-z0-9.-]+(:[0-9]+)?/)?[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*(/[a-z0-9]+(([._]|__|-+)[a-z0-9]+)*)*$'
+          [[ "$repository" =~ $repository_pattern ]] || fail "API image repository is invalid."
+          name="${repository##*/}"
+          [[ ! "$name" =~ (^|[-_.])s6($|[-_.]) ]] || fail "Use the API-only image; an S6 image would create a circular dependency."
 
   # binary build
   build:
 
     name: Build - ${{ matrix.job.name }}
+    needs: validate-api-image
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -58,7 +95,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --all-features --target=${{ matrix.job.target }}
+          args: --release --locked --all-features --target=${{ matrix.job.target }}
           use-cross: true  
 
       - name: Exec chmod
@@ -76,6 +113,7 @@ jobs:
 
   build-win:
     name: Build - windows
+    needs: validate-api-image
     runs-on: windows-2022
 
     steps:
@@ -99,7 +137,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --all-features --target=x86_64-pc-windows-msvc
+          args: --release --locked --all-features --target=x86_64-pc-windows-msvc
           use-cross: true
 
       - name: Install NSIS
@@ -274,6 +312,7 @@ jobs:
           provenance: false
           build-args: |
             S6_ARCH=${{ matrix.job.s6_platform }}
+            API_IMAGE=${{ env.API_IMAGE }}
           tags: |
             ${{ secrets.DOCKER_IMAGE }}:${{ env.LATEST_TAG }}-${{ matrix.job.name }}
             ${{ secrets.DOCKER_IMAGE }}:${{ env.GIT_TAG }}-${{ matrix.job.name }}
@@ -416,7 +455,7 @@ jobs:
   docker-manifest-classic:
 
     name: Docker manifest classic
-    needs: docker
+    needs: docker-classic
     runs-on: ubuntu-24.04
     steps:
 
